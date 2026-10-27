@@ -15,7 +15,7 @@ const estadoUI = {
 
 /** Texto de la columna "clave" segun la politica. */
 const CLAVES = {
-    PRIORIDAD_ESTRICTA: 'Nivel',
+    PRIORIDAD_ESTRICTA: 'Clave (nivel)',
     ENVEJECIMIENTO: 'Prioridad efectiva',
     MENOS_ARTICULOS: 'Artículos',
     PLAZO_MAS_CERCANO: 'Min. para vencer',
@@ -423,22 +423,26 @@ function dibujarGrafo(aristas) {
         return;
     }
     const nodos = [...new Set(aristas.flatMap((a) => [a.espera, a.retiene]))];
-    const W = 320, H = 240, R = Math.min(W, H) / 2 - 46, cx = W / 2, cy = H / 2;
+    const W = 360, H = 260, RN = 27, R = Math.min(W, H) / 2 - 50, cx = W / 2, cy = H / 2;
     const pos = Object.fromEntries(nodos.map((n, i) => {
         const ang = -Math.PI / 2 + (2 * Math.PI * i) / nodos.length;
         return [n, { x: cx + R * Math.cos(ang), y: cy + R * Math.sin(ang) }];
     }));
-    const lineas = aristas.map((a, i) => {
+    const lineas = aristas.map((a) => {
         const p = pos[a.espera], q = pos[a.retiene];
         const dx = q.x - p.x, dy = q.y - p.y, d = Math.hypot(dx, dy) || 1;
-        // Curva para que A->B y B->A no se encimen.
-        const nx = -dy / d * 18, ny = dx / d * 18;
-        const mx = (p.x + q.x) / 2 + nx, my = (p.y + q.y) / 2 + ny;
-        const x1 = p.x + dx / d * 22, y1 = p.y + dy / d * 22, x2 = q.x - dx / d * 24, y2 = q.y - dy / d * 24;
+        // Curva hacia la normal para que A->B y B->A no se encimen; la etiqueta va por fuera de la curva.
+        const ux = -dy / d, uy = dx / d;
+        const mx = (p.x + q.x) / 2 + ux * 22, my = (p.y + q.y) / 2 + uy * 22;
+        const x1 = p.x + dx / d * (RN + 2), y1 = p.y + dy / d * (RN + 2);
+        const x2 = q.x - dx / d * (RN + 4), y2 = q.y - dy / d * (RN + 4);
+        const lx = (p.x + q.x) / 2 + ux * 20, ly = (p.y + q.y) / 2 + uy * 20;
+        const ancla = Math.abs(ux) < 0.35 ? 'middle' : (ux > 0 ? 'start' : 'end');
+        const ajusteY = Math.abs(ux) < 0.35 ? (uy > 0 ? 12 : -4) : 4;
         return `<path d="M${x1},${y1} Q${mx},${my} ${x2},${y2}" fill="none" stroke="var(--peligro)" stroke-width="1.8" marker-end="url(#punta)"/>
-                <text class="etq-arista" x="${mx}" y="${my - 4}" text-anchor="middle">${esc(a.recurso)}</text>`;
+                <text class="etq-arista" x="${lx + (ancla === 'start' ? 4 : ancla === 'end' ? -4 : 0)}" y="${ly + ajusteY}" text-anchor="${ancla}">${esc(a.recurso)}</text>`;
     }).join('');
-    const circulos = nodos.map((n) => `<circle cx="${pos[n].x}" cy="${pos[n].y}" r="20" fill="var(--superficie-2)" stroke="var(--texto-2)"/>
+    const circulos = nodos.map((n) => `<circle cx="${pos[n].x}" cy="${pos[n].y}" r="${RN}" fill="var(--superficie-2)" stroke="var(--texto-2)"/>
             <text x="${pos[n].x}" y="${pos[n].y + 4}" text-anchor="middle">${esc(corto(n))}</text>`).join('');
     cont.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Grafo de espera">
         <defs><marker id="punta" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
