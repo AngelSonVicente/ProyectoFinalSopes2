@@ -5,6 +5,7 @@ import gt.cunoc.redxela.modelo.TipoRecurso;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Conjunto de unidades identicas de un recurso (ej. las 6 estaciones de empaque).
@@ -41,6 +42,20 @@ public class PoolRecurso {
      */
     public boolean intentarAdquirir(String duenio, int cantidad) {
         if (!semaforo.tryAcquire(cantidad)) {
+            return false;
+        }
+        asignar(duenio, cantidad);
+        return true;
+    }
+
+    /**
+     * Espera como maximo {@code timeoutMs} a que haya {@code cantidad} unidades libres.
+     * Con el semaforo justo, los hilos que esperan son atendidos en orden de llegada.
+     *
+     * @return {@code true} si las obtuvo antes del tiempo limite
+     */
+    public boolean adquirir(String duenio, int cantidad, long timeoutMs) throws InterruptedException {
+        if (!semaforo.tryAcquire(cantidad, timeoutMs, TimeUnit.MILLISECONDS)) {
             return false;
         }
         asignar(duenio, cantidad);

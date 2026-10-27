@@ -1,8 +1,10 @@
 package gt.cunoc.redxela.planificacion;
 
 import gt.cunoc.redxela.estadisticas.Estadisticas;
+import gt.cunoc.redxela.inventario.Inventario;
 import gt.cunoc.redxela.modelo.EstadoPedido;
 import gt.cunoc.redxela.modelo.Pedido;
+import gt.cunoc.redxela.modelo.Producto;
 import gt.cunoc.redxela.modelo.TipoRecurso;
 import gt.cunoc.redxela.recursos.GestorRecursos;
 import gt.cunoc.redxela.simulacion.RegistroEventos;
@@ -37,6 +39,7 @@ public class Despachador implements Runnable {
 
     private final ColaEspera cola;
     private final GestorRecursos gestor;
+    private final Inventario inventario;
     private final RelojSimulado reloj;
     private final Estadisticas estadisticas;
     private final RegistroEventos eventos;
@@ -51,10 +54,11 @@ public class Despachador implements Runnable {
     private volatile boolean activo = true;
     private Thread hilo;
 
-    public Despachador(ColaEspera cola, GestorRecursos gestor, RelojSimulado reloj, Estadisticas estadisticas,
-                       RegistroEventos eventos, long msPorUnidad) {
+    public Despachador(ColaEspera cola, GestorRecursos gestor, Inventario inventario, RelojSimulado reloj,
+                       Estadisticas estadisticas, RegistroEventos eventos, long msPorUnidad) {
         this.cola = cola;
         this.gestor = gestor;
+        this.inventario = inventario;
         this.reloj = reloj;
         this.estadisticas = estadisticas;
         this.eventos = eventos;
@@ -99,12 +103,31 @@ public class Despachador implements Runnable {
         }
     }
 
-    /** Una pasada por la lista de espera en el orden de la politica vigente. */
+    /**
+     * Una pasada por la lista de espera en el orden de la politica vigente. Para iniciar, un pedido necesita
+     * primero existencias de todos sus productos y luego todos sus recursos. Solo este hilo retira existencias,
+     * asi que entre la verificacion y el retiro nadie puede consumirlas.
+     */
     private void revisar() {
         PoliticaPlanificacion actual = politica;
         long ahora = reloj.ahora();
         for (Pedido pedido : cola.ordenados(actual, ahora)) {
+            Map<String, int[]> sinStock = inventario.faltantes(pedido.getLineas());
+            if (!sinStock.isEmpty()) {
+                pedido.setEstado(EstadoPedido.ESPERANDO_STOCK);
+                pedido.setMotivoEspera("Sin existencias: " + sinStock.entrySet().stream()
+                        .map(e -> e.getKey() + " (pide " + e.getValue()[0] + ", hay " + e.getValue()[1] + ")")
+                        .collect(Collectors.joining(", ")));
+                continue;
+            }
             if (gestor.intentarReservar(pedido.etiqueta(), pedido.getRequerimientos())) {
+                try {
+                    inventario.retirar(pedido.getLineas(), ahora);
+                } catch (RuntimeException e) {
+                    // No deberia pasar (se verifico arriba), pero si pasa no se quedan recursos tomados.
+                    gestor.liberarTodo(pedido.etiqueta());
+                    throw e;
+                }
                 cola.remover(pedido);
                 arrancar(pedido, actual);
             } else {
@@ -136,6 +159,26 @@ public class Despachador implements Runnable {
                 completadosRecientes.removeLast();
             }
         }
+    }
+
+    /**
+     * Inventario avisa que {@code producto} gano existencias: los pedidos que lo esperaban vuelven a quedar
+     * "en cola" y se fuerza una revision inmediata.
+     */
+    public void reevaluarPorStock(Producto producto) {
+        int reevaluados = 0;
+        for (Pedido p : cola.ordenados(politica, reloj.ahora())) {
+            if (p.getEstado() == EstadoPedido.ESPERANDO_STOCK
+                    && p.getLineas().stream().anyMatch(l -> l.producto().equals(producto))) {
+                p.setEstado(EstadoPedido.EN_COLA);
+                p.setMotivoEspera("Reevaluando: llego " + producto.nombre());
+                reevaluados++;
+            }
+        }
+        if (reevaluados > 0) {
+            eventos.registrar("Llego " + producto.nombre() + ": se reevaluan " + reevaluados + " pedido(s) en espera");
+        }
+        cola.notificarCambio();
     }
 
     /** Cambia la politica en caliente y fuerza una nueva revision con el nuevo orden. */
