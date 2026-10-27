@@ -4,6 +4,8 @@ import gt.cunoc.redxela.modelo.TipoRecurso;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 
@@ -27,6 +29,8 @@ public class PoolRecurso {
     private final Semaphore semaforo;
     /** Duenio de cada unidad; {@code null} = libre. Protegido por el monitor de este objeto. */
     private final String[] duenios;
+    /** Quien esta bloqueado esperando unidades de este recurso y cuantas pide (para el grafo de espera). */
+    private final Map<String, Integer> esperando = new ConcurrentHashMap<>();
 
     public PoolRecurso(TipoRecurso tipo) {
         this.tipo = tipo;
@@ -35,17 +39,40 @@ public class PoolRecurso {
     }
 
     /**
-     * Intenta tomar {@code cantidad} unidades sin bloquear.
-     * {@code tryAcquire(n)} es atomico: o toma las n unidades o no toma ninguna.
+     * Intenta tomar {@code cantidad} unidades sin bloquear. Es atomico: o toma las n unidades o ninguna.
+     *
+     * <p>Se usa {@code tryAcquire(n, 0, ms)} y no {@code tryAcquire(n)} porque este ultimo se "cuela" delante de
+     * los hilos que ya estan esperando aunque el semaforo sea justo; con tiempo 0 se respeta la fila y el
+     * despachador no puede dejar sin recursos a un hilo bloqueado.</p>
      *
      * @return {@code true} si las obtuvo
      */
     public boolean intentarAdquirir(String duenio, int cantidad) {
-        if (!semaforo.tryAcquire(cantidad)) {
+        try {
+            if (!semaforo.tryAcquire(cantidad, 0, TimeUnit.MILLISECONDS)) {
+                return false;
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
             return false;
         }
         asignar(duenio, cantidad);
         return true;
+    }
+
+    /**
+     * Espera sin limite de tiempo hasta obtener {@code cantidad} unidades. Mientras espera queda registrado en
+     * {@link #esperando()}, que es lo que usa el detector para construir el grafo de espera. La espera es
+     * interrumpible: asi se resuelve un deadlock (se interrumpe a la operacion que debe ceder).
+     */
+    public void adquirirBloqueante(String duenio, int cantidad) throws InterruptedException {
+        esperando.merge(duenio, cantidad, Integer::sum);
+        try {
+            semaforo.acquire(cantidad);
+        } finally {
+            esperando.remove(duenio);
+        }
+        asignar(duenio, cantidad);
     }
 
     /**
@@ -55,8 +82,13 @@ public class PoolRecurso {
      * @return {@code true} si las obtuvo antes del tiempo limite
      */
     public boolean adquirir(String duenio, int cantidad, long timeoutMs) throws InterruptedException {
-        if (!semaforo.tryAcquire(cantidad, timeoutMs, TimeUnit.MILLISECONDS)) {
-            return false;
+        esperando.merge(duenio, cantidad, Integer::sum);
+        try {
+            if (!semaforo.tryAcquire(cantidad, timeoutMs, TimeUnit.MILLISECONDS)) {
+                return false;
+            }
+        } finally {
+            esperando.remove(duenio);
         }
         asignar(duenio, cantidad);
         return true;
@@ -101,6 +133,22 @@ public class PoolRecurso {
     /** Copia del duenio de cada unidad, para la interfaz. */
     public synchronized List<String> duenios() {
         return Arrays.asList(Arrays.copyOf(duenios, duenios.length));
+    }
+
+    /** Copia de quien espera este recurso -> unidades que pide. */
+    public Map<String, Integer> esperando() {
+        return Map.copyOf(esperando);
+    }
+
+    /** Unidades que tiene {@code duenio} de este recurso. */
+    public synchronized int unidadesDe(String duenio) {
+        int n = 0;
+        for (String d : duenios) {
+            if (duenio.equals(d)) {
+                n++;
+            }
+        }
+        return n;
     }
 
     public int ocupados() {

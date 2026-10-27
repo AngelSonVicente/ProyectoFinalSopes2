@@ -39,7 +39,7 @@ class InventarioTest {
     @Test
     void rafagaNoPierdeAvisosYPedidoEsperaStock() throws InterruptedException {
         // Buzon de 2 e Inventario lento: Recepcion se adelanta y tiene que esperar.
-        Simulacion sim = new Simulacion(60, 10, 1000, false, 5, 40, 2, 1000);
+        Simulacion sim = new Simulacion(60, 10, 1000, false, 5, 40, 2, 1000, 300);
         sim.iniciar();
         try {
             // P-013 arranca sin existencias: el pedido debe quedar esperando stock.
