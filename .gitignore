@@ -1,0 +1,12 @@
+target/
+*.class
+*.log
+.idea/
+*.iml
+.vscode/
+.DS_Store
+
+
+ProyectoFinal (1).pdf
+PLAN.md
+docs_preeliminar/
