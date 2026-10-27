@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>REDXela · Centro de distribución</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect width=%2232%22 height=%2232%22 rx=%227%22 fill=%22%231f6f5c%22/%3E%3Ctext x=%2216%22 y=%2221%22 font-size=%2213%22 font-family=%22sans-serif%22 font-weight=%22700%22 text-anchor=%22middle%22 fill=%22white%22%3ERX%3C/text%3E%3C/svg%3E">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="barra">
+    <div class="marca">
+        <span class="logo">RX</span>
+        <div>
+            <h1>REDXela</h1>
+            <p class="sub">Simulador del centro de distribución</p>
+        </div>
+    </div>
+
+    <div class="controles">
+        <div class="reloj" title="Tiempo simulado (1 s real = 1 min simulado)">
+            <span class="etq">Reloj</span>
+            <span id="reloj" class="num">00:00</span>
+        </div>
+
+        <label class="campo">
+            <span class="etq">Política de atención</span>
+            <select id="politica"></select>
+        </label>
+
+        <div class="campo">
+            <span class="etq">Generador de pedidos</span>
+            <div class="fila">
+                <button id="btnGenPedidos" class="interruptor" aria-pressed="false">Detenido</button>
+                <select id="velPedidos" title="Tiempo medio entre pedidos">
+                    <option value="3000">Lento (3 s)</option>
+                    <option value="1500" selected>Normal (1.5 s)</option>
+                    <option value="700">Rápido (0.7 s)</option>
+                    <option value="300">Saturado (0.3 s)</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="campo">
+            <span class="etq">Camiones automáticos</span>
+            <button id="btnGenCamiones" class="interruptor" aria-pressed="false">Detenido</button>
+        </div>
+    </div>
+
+    <button id="alertaConflicto" class="alerta" hidden>Deadlock detectado · resolver</button>
+</header>
+
+<nav class="pestanas" role="tablist">
+    <button role="tab" data-tab="operacion" aria-selected="true">Operación</button>
+    <button role="tab" data-tab="inventario">Inventario y almacén</button>
+    <button role="tab" data-tab="conflictos">Conflicto de recursos <span id="badgeConflicto" class="badge" hidden>!</span></button>
+    <button role="tab" data-tab="estadisticas">Estadísticas</button>
+    <button role="tab" data-tab="bitacora">Bitácora</button>
+</nav>
+
+<main>
+    <!-- ===================== OPERACION ===================== -->
+    <section id="tab-operacion" class="tab activa">
+        <div class="kpis" id="kpisOperacion"></div>
+
+        <div class="panel">
+            <div class="panel-cab">
+                <h2>Recursos compartidos</h2>
+                <p class="ayuda">Cada cuadro es una unidad. Gris = disponible; color = en uso, con el nombre de quien la tiene.</p>
+            </div>
+            <div id="recursos" class="recursos"></div>
+        </div>
+
+        <div class="dos-columnas">
+            <div class="col-principal">
+                <div class="panel">
+                    <div class="panel-cab">
+                        <h2>En proceso <span id="cuentaProceso" class="cuenta"></span></h2>
+                    </div>
+                    <div class="tabla-envoltura">
+                        <table>
+                            <thead>
+                            <tr><th>Pedido</th><th>Nivel</th><th>Art.</th><th>Etapa</th><th class="ancho">Progreso</th><th>Restante</th><th>Recursos que retiene</th></tr>
+                            </thead>
+                            <tbody id="enProceso"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="panel">
+                    <div class="panel-cab">
+                        <h2>Lista de espera <span id="cuentaEspera" class="cuenta"></span></h2>
+                        <p class="ayuda" id="criterioEspera"></p>
+                    </div>
+                    <div class="tabla-envoltura alta">
+                        <table>
+                            <thead>
+                            <tr><th>#</th><th>Pedido</th><th>Nivel</th><th>Art.</th><th id="colClave">Clave</th><th>Espera / límite</th><th>Estado</th><th>Motivo</th></tr>
+                            </thead>
+                            <tbody id="espera"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <aside class="col-lateral">
+                <div class="panel">
+                    <div class="panel-cab"><h2>Nuevo pedido manual</h2></div>
+                    <form id="formPedido" class="formulario">
+                        <label>Cliente
+                            <select name="clienteId" id="selCliente" required></select>
+                        </label>
+                        <label>Nivel de servicio
+                            <select name="nivel" id="selNivel"></select>
+                        </label>
+                        <div class="lineas" id="lineasPedido"></div>
+                        <button type="button" class="secundario" id="btnAgregarLinea">+ Agregar producto</button>
+                        <button type="submit" class="primario">Ingresar pedido</button>
+                    </form>
+                </div>
+
+                <div class="panel">
+                    <div class="panel-cab"><h2>Nueva cuenta de cliente</h2></div>
+                    <form id="formCliente" class="formulario">
+                        <label>Nombre <input name="nombre" required maxlength="60"></label>
+                        <label>Correo <input name="correo" type="email" maxlength="80"></label>
+                        <label>Servicio contratado <select name="nivel" id="selNivelCliente" required></select></label>
+                        <button type="submit" class="primario">Crear cuenta</button>
+                    </form>
+                </div>
+
+                <div class="panel">
+                    <div class="panel-cab"><h2>Últimos terminados</h2></div>
+                    <ul id="terminados" class="lista-compacta"></ul>
+                </div>
+            </aside>
+        </div>
+    </section>
+
+    <!-- ===================== INVENTARIO ===================== -->
+    <section id="tab-inventario" class="tab">
+        <div class="dos-columnas">
+            <div class="col-principal">
+                <div class="panel">
+                    <div class="panel-cab">
+                        <h2>Recepción → Inventario</h2>
+                        <p class="ayuda">Recepción (productor) escanea cada camión y envía un aviso por un buzón acotado. Inventario (consumidor) los procesa a su ritmo. Si el buzón se llena, Recepción espera sin perder avisos.</p>
+                    </div>
+                    <div id="flujoRecepcion" class="flujo"></div>
+                </div>
+
+                <div class="panel">
+                    <div class="panel-cab">
+                        <h2>Almacén <span id="libresAlmacen" class="cuenta"></span></h2>
+                        <p class="ayuda">Cada celda es una ubicación (pasillo · nivel · posición). Haz clic en un lote o una celda para resaltar todas sus ubicaciones: un lote puede quedar repartido en ubicaciones no contiguas.</p>
+                    </div>
+                    <div id="almacen" class="almacen"></div>
+                </div>
+            </div>
+
+            <aside class="col-lateral">
+                <div class="panel">
+                    <div class="panel-cab"><h2>Registrar llegada de mercadería</h2></div>
+                    <form id="formLlegada" class="formulario">
+                        <label>Producto <select name="codigo" id="selProductoLlegada" required></select></label>
+                        <label>Unidades recibidas <input name="cantidad" type="number" min="1" max="500" value="20" required></label>
+                        <button type="submit" class="primario">Registrar camión</button>
+                        <button type="button" class="secundario" id="btnRafaga">Ráfaga de 12 camiones</button>
+                    </form>
+                </div>
+
+                <div class="panel">
+                    <div class="panel-cab"><h2>Existencias</h2></div>
+                    <div class="tabla-envoltura">
+                        <table>
+                            <thead><tr><th>Producto</th><th>Tipo</th><th class="der">Stock</th><th class="der">Por ubicar</th></tr></thead>
+                            <tbody id="existencias"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="panel">
+                    <div class="panel-cab"><h2>Lotes y sus ubicaciones</h2></div>
+                    <ul id="lotes" class="lista-compacta lotes"></ul>
+                </div>
+            </aside>
+        </div>
+    </section>
+
+    <!-- ===================== CONFLICTOS ===================== -->
+    <section id="tab-conflictos" class="tab">
+        <div class="panel">
+            <div class="panel-cab">
+                <h2>Escenario de conflicto</h2>
+                <p class="ayuda">
+                    <b>Recepción de camión pesado</b>: toma el escáner y luego pide un montacargas.
+                    <b>Despacho extra pesado</b>: toma los 3 montacargas y luego pide el escáner.
+                    Sin prevención cada una retiene lo que la otra necesita. Con prevención ambas piden en el orden global
+                    (montacargas antes que escáner) y el ciclo no puede formarse.
+                </p>
+            </div>
+            <div class="fila acciones">
+                <button class="peligro" id="btnProvocar">Provocar conflicto (sin prevención)</button>
+                <button class="secundario" id="btnPrevencion">Ejecutar con prevención</button>
+                <button class="fantasma" id="btnLimpiarOps">Quitar operaciones terminadas</button>
+            </div>
+        </div>
+
+        <div id="conflictoActivo"></div>
+
+        <div class="dos-columnas">
+            <div class="col-principal">
+                <div class="panel">
+                    <div class="panel-cab"><h2>Operaciones</h2></div>
+                    <div id="operaciones" class="operaciones"></div>
+                </div>
+            </div>
+            <aside class="col-lateral">
+                <div class="panel">
+                    <div class="panel-cab">
+                        <h2>Grafo de espera actual</h2>
+                        <p class="ayuda">Flecha A → B: A espera un recurso que tiene B. Un ciclo es un deadlock.</p>
+                    </div>
+                    <div id="grafo" class="grafo"></div>
+                </div>
+                <div class="panel">
+                    <div class="panel-cab"><h2>Historial de conflictos</h2></div>
+                    <ul id="historialConflictos" class="lista-compacta"></ul>
+                </div>
+            </aside>
+        </div>
+    </section>
+
+    <!-- ===================== ESTADISTICAS ===================== -->
+    <section id="tab-estadisticas" class="tab">
+        <div class="kpis" id="kpisEstadisticas"></div>
+
+        <div class="panel">
+            <div class="panel-cab">
+                <h2>Comparación de políticas</h2>
+                <p class="ayuda">Cada pedido se contabiliza en la política con la que fue despachado. Para comparar, deja correr el generador un rato con cada política.</p>
+            </div>
+            <div class="tabla-envoltura">
+                <table>
+                    <thead>
+                    <tr><th>Política</th><th class="der">Completados</th><th class="der">Espera prom.</th><th class="der">Proceso prom.</th><th class="der">SLA cumplido</th>
+                        <th class="der">Expres</th><th class="der">Prioritario</th><th class="der">Estandar</th><th class="der">Programado</th><th class="der">Economico</th></tr>
+                    </thead>
+                    <tbody id="comparacion"></tbody>
+                </table>
+            </div>
+            <p class="ayuda nota">Las columnas por nivel muestran la espera promedio (min) y el % de pedidos que iniciaron dentro de su tiempo objetivo.</p>
+        </div>
+
+        <div class="panel">
+            <div class="panel-cab"><h2>Ocupación de recursos</h2>
+                <p class="ayuda">Barra: ocupación actual. Marca: promedio con la política vigente.</p></div>
+            <div id="ocupacion" class="ocupacion"></div>
+        </div>
+    </section>
+
+    <!-- ===================== BITACORA ===================== -->
+    <section id="tab-bitacora" class="tab">
+        <div class="panel">
+            <div class="panel-cab"><h2>Bitácora de eventos</h2><p class="ayuda">Últimos 60 eventos, con el hilo que los generó.</p></div>
+            <div class="tabla-envoltura alta">
+                <table>
+                    <thead><tr><th>Minuto</th><th>Hilo</th><th>Evento</th></tr></thead>
+                    <tbody id="eventos"></tbody>
+                </table>
+            </div>
+        </div>
+    </section>
+</main>
+
+<div id="avisos" class="avisos" aria-live="polite"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
