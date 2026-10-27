@@ -1,5 +1,6 @@
 package gt.cunoc.redxela.simulacion;
 
+import gt.cunoc.redxela.deadlock.GestorConflictos;
 import gt.cunoc.redxela.estadisticas.Estadisticas;
 import gt.cunoc.redxela.excepciones.DatosInvalidosException;
 import gt.cunoc.redxela.generador.GeneradorCamiones;
@@ -40,7 +41,8 @@ import java.util.concurrent.TimeUnit;
  *
  * <p>Hilos que viven aqui: Despachador (planificador), Trabajador-N (pool de procesamiento),
  * Generador (llegada automatica de pedidos), Camiones (llegada automatica de mercaderia),
- * Recepcion (productor), Inventario (consumidor) y Muestreo (ocupacion de recursos para estadisticas).</p>
+ * Recepcion (productor), Inventario (consumidor), Detector-deadlock, las operaciones de conflicto (OP-N)
+ * y Muestreo (ocupacion de recursos para estadisticas).</p>
  */
 @Component
 public class Simulacion {
@@ -63,6 +65,7 @@ public class Simulacion {
     private final Recepcion recepcion;
     private final ControlInventario controlInventario;
     private final GeneradorCamiones generadorCamiones;
+    private final GestorConflictos conflictos;
     private final Estadisticas estadisticas = new Estadisticas();
     private final Despachador despachador;
     private final GeneradorPedidos generador;
@@ -80,7 +83,8 @@ public class Simulacion {
                       @Value("${redxela.recepcion.ms-escaneo:200}") long msEscaneo,
                       @Value("${redxela.inventario.ms-procesamiento:700}") long msInventario,
                       @Value("${redxela.inventario.capacidad-buzon:5}") int capacidadBuzon,
-                      @Value("${redxela.camiones.intervalo-ms:4000}") long intervaloCamiones) {
+                      @Value("${redxela.camiones.intervalo-ms:4000}") long intervaloCamiones,
+                      @Value("${redxela.conflicto.ms-por-paso:1500}") long msPasoConflicto) {
         this.reloj = new RelojSimulado(factorReloj);
         this.eventos = new RegistroEventos(reloj);
         this.despachador = new Despachador(cola, gestor, inventario, reloj, estadisticas, eventos, msPorUnidad);
@@ -88,6 +92,7 @@ public class Simulacion {
         this.recepcion = new Recepcion(buzon, gestor, reloj, eventos, msEscaneo);
         this.controlInventario = new ControlInventario(buzon, inventario, eventos, msInventario);
         this.generadorCamiones = new GeneradorCamiones(catalogo, recepcion::registrarLlegada, intervaloCamiones);
+        this.conflictos = new GestorConflictos(gestor, eventos, reloj, msPasoConflicto);
         this.generador = new GeneradorPedidos(catalogo, clientes,
                 (cliente, nivel, lineas) -> ingresar(cliente, nivel, lineas, false), intervaloGenerador);
         this.autoIniciarGenerador = autoIniciarGenerador;
@@ -109,6 +114,7 @@ public class Simulacion {
         despachador.iniciar();
         recepcion.iniciar();
         controlInventario.iniciar();
+        conflictos.iniciar();
         muestreo.scheduleAtFixedRate(() -> estadisticas.muestrearOcupacion(gestor, despachador.getPolitica()),
                 MUESTREO_MS, MUESTREO_MS, TimeUnit.MILLISECONDS);
         if (autoIniciarGenerador) {
@@ -123,6 +129,7 @@ public class Simulacion {
         generadorCamiones.detener();
         recepcion.detener();
         controlInventario.detener();
+        conflictos.detener();
         muestreo.shutdownNow();
         despachador.detener();
     }
@@ -212,6 +219,10 @@ public class Simulacion {
 
     public GeneradorCamiones getGeneradorCamiones() {
         return generadorCamiones;
+    }
+
+    public GestorConflictos getConflictos() {
+        return conflictos;
     }
 
     public Inventario getInventario() {

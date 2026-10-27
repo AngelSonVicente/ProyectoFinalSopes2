@@ -33,7 +33,7 @@ class NucleoTest {
     @Test
     void procesaPedidosYLiberaTodo() throws InterruptedException {
         // Reloj rapido y poco trabajo por unidad para que la prueba dure poco.
-        Simulacion sim = new Simulacion(60, 20, 1000, false, 20, 50, 5, 1000);
+        Simulacion sim = new Simulacion(60, 20, 1000, false, 20, 50, 5, 1000, 300);
         sim.iniciar();
         try {
             sim.cambiarPolitica(PoliticaPlanificacion.MENOS_ARTICULOS);
